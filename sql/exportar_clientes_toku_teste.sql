@@ -1,4 +1,4 @@
--- TESTE: cópia de exportar_clientes_toku.sql limitada a 50 linhas (TOP 50).
+-- TESTE: cópia de exportar_clientes_toku.sql limitada a 1000 linhas (TOP 1000).
 -- Somente leitura (SELECT) em [WebHook-Rd-prd], [WebHook-omie-prd] e [energyClub-prd].
 -- Nenhum CREATE/ALTER/UPDATE/DELETE. Nada é gravado em nenhuma das bases.
 -- Use apenas para validar o resultado da query antes de rodar a exportação completa.
@@ -339,7 +339,7 @@ dedup AS (
                 fp.NOME) AS rn
     FROM final_prep fp
 )
-SELECT TOP 50
+SELECT TOP 1000
     NOME,
     CPF_CNPJ           AS [CPF OU CNPJ (SOMENTE NÚMEROS)],
     EMAIL,
