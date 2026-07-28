@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 dotenv.load_dotenv()
 
 SQL_SERVER   = os.getenv("SQL_SERVER", "")
+SQL_PORT     = os.getenv("SQL_PORT", "1433")
 SQL_DATABASE = os.getenv("SQL_DATABASE", "")
 SQL_USER     = os.getenv("SQL_USER", "")
 SQL_PASSWORD = os.getenv("SQL_PASSWORD", "")
@@ -47,8 +48,11 @@ COLUNA_LARGURAS = {
 
 
 def connect():
+    # "tcp:" força o protocolo TCP/IP explicitamente — sem isso, alguns clientes
+    # Windows tentam Named Pipes primeiro (configuração de protocolo do cliente)
+    # e a conexão falha mesmo com a porta acessível.
     conn_str = (
-        f"DRIVER={SQL_DRIVER};SERVER={SQL_SERVER};DATABASE={SQL_DATABASE};"
+        f"DRIVER={SQL_DRIVER};SERVER=tcp:{SQL_SERVER},{SQL_PORT};DATABASE={SQL_DATABASE};"
         f"UID={SQL_USER};PWD={SQL_PASSWORD};TrustServerCertificate=yes"
     )
     return pyodbc.connect(conn_str, timeout=30)
