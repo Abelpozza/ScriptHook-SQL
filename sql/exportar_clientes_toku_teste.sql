@@ -20,6 +20,9 @@ base AS (
     SELECT
         CAST(d.DealId AS NVARCHAR(100)) AS DealId,
         CAST(d.Name AS NVARCHAR(500))   AS NomeDeal,
+        -- Mesmo ambiente_id usado no cruzamento RD -> Omie em outras rotinas:
+        -- pipeline "001. CGH APARECIDA" usa o ambiente 5, todo o resto usa o 2.
+        CASE WHEN d.DealPipelineName = N'001. CGH APARECIDA' THEN 5 ELSE 2 END AS AmbienteId,
         cfa.CpfCnpjRaw, cfa.EmailRaw, cfa.CepRaw, cfa.CidadeRaw, cfa.EstadoRaw
     FROM [WebHook-Rd-prd].dbo.Deals d
     JOIN cfa ON cfa.DealId = d.Id
@@ -33,7 +36,8 @@ base AS (
 
 docs_alvo AS (
     SELECT DISTINCT
-        CAST(REPLACE(REPLACE(REPLACE(ISNULL(b.CpfCnpjRaw,''),'.',''),'-',''),'/','') AS VARCHAR(20)) AS doc
+        CAST(REPLACE(REPLACE(REPLACE(ISNULL(b.CpfCnpjRaw,''),'.',''),'-',''),'/','') AS VARCHAR(20)) AS doc,
+        b.AmbienteId
     FROM base b
 ),
 
@@ -94,9 +98,10 @@ email_sec AS (
 ),
 
 omie_uni AS (
-    SELECT CpfCnpjNum, cep_limpo, cidade, estado, telefone1_ddd, telefone1_numero
+    SELECT CpfCnpjNum, AmbienteId, cep_limpo, cidade, estado, telefone1_ddd, telefone1_numero
     FROM (
         SELECT CAST(REPLACE(REPLACE(REPLACE(cf.cnpj_cpf,'.',''),'-',''),'/','') AS VARCHAR(20)) AS CpfCnpjNum,
+               cf.ambiente_id                          AS AmbienteId,
                CASE WHEN cf.cep IS NOT NULL
                      AND REPLACE(cf.cep,'-','') NOT LIKE '%[^0-9]%'
                      AND LEN(REPLACE(cf.cep,'-','')) = 8
@@ -106,10 +111,11 @@ omie_uni AS (
                CAST(REPLACE(REPLACE(cf.telefone1_ddd,' ',''),'-','') AS VARCHAR(5))     AS telefone1_ddd,
                CAST(REPLACE(REPLACE(cf.telefone1_numero,' ',''),'-','') AS VARCHAR(20)) AS telefone1_numero,
                ROW_NUMBER() OVER (
-                   PARTITION BY CAST(REPLACE(REPLACE(REPLACE(cf.cnpj_cpf,'.',''),'-',''),'/','') AS VARCHAR(20))
+                   PARTITION BY CAST(REPLACE(REPLACE(REPLACE(cf.cnpj_cpf,'.',''),'-',''),'/','') AS VARCHAR(20)), cf.ambiente_id
                    ORDER BY cf.dataUltimaAtualizacao DESC) AS rn
         FROM [WebHook-omie-prd].dbo.cliente_fornecedor cf
         INNER JOIN docs_alvo da ON da.doc = CAST(REPLACE(REPLACE(REPLACE(cf.cnpj_cpf,'.',''),'-',''),'/','') AS VARCHAR(20))
+                                AND da.AmbienteId = cf.ambiente_id
         WHERE cf.excluido = 0 AND cf.cnpj_cpf IS NOT NULL AND cf.cnpj_cpf <> ''
     ) o
     WHERE o.rn = 1
@@ -144,7 +150,7 @@ cep_tab AS (
 
 limpo AS (
     SELECT
-        b.DealId, b.NomeDeal,
+        b.DealId, b.NomeDeal, b.AmbienteId,
         CAST(REPLACE(REPLACE(REPLACE(ISNULL(b.CpfCnpjRaw,''),'.',''),'-',''),'/','') AS VARCHAR(20)) AS doc,
         LTRIM(RTRIM(ISNULL(b.EmailRaw, ct.PrimaryEmail))) AS email,
         CAST(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
@@ -244,7 +250,7 @@ valida AS (
 
 formatado AS (
     SELECT v.DealId, v.NomeDeal AS NOME, v.doc AS CPF_CNPJ, LOWER(v.email) AS EMAIL,
-           v.fone_rd, v.ContactId, v.rd_cep_limpo, v.CidadeRaw, v.EstadoRaw
+           v.fone_rd, v.ContactId, v.rd_cep_limpo, v.CidadeRaw, v.EstadoRaw, v.AmbienteId
     FROM valida v
     WHERE v.doc_ok = 1 AND v.email_ok = 1
 ),
@@ -287,7 +293,7 @@ final_prep AS (
         END AS EMAIL_SUSPEITO
     FROM formatado f
     LEFT JOIN cep_tab ct ON ct.cep_num = f.rd_cep_limpo
-    LEFT JOIN omie_uni o ON o.CpfCnpjNum = f.CPF_CNPJ
+    LEFT JOIN omie_uni o ON o.CpfCnpjNum = f.CPF_CNPJ AND o.AmbienteId = f.AmbienteId
     LEFT JOIN email_sec es ON es.ContactId = f.ContactId
     CROSS APPLY (
         SELECT
