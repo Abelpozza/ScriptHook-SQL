@@ -1,11 +1,14 @@
 """
 Exporta clientes (RD Station + Omie) para o padrão de importação da Toku.
-Somente leitura (SELECT) — a query em sql/exportar_clientes_toku.sql não
-grava nada em nenhuma das bases.
+Somente leitura (SELECT) — as extrações em sql/extract_*.sql não gravam nada
+em nenhuma das bases. Todo o tratamento de dados (nome, CPF/CNPJ, e-mail,
+telefone, CEP/cidade/UF, deduplicação) é feito em tratamento_clientes_toku.py.
 
 Uso:
-    python exportar_clientes_toku.py
+    python exportar_clientes_toku.py            # carga completa
+    python exportar_clientes_toku.py --teste    # limita Deals a TOP 1000
 """
+import argparse
 import os
 from datetime import datetime
 
@@ -14,6 +17,8 @@ import pandas as pd
 import pyodbc
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
+
+import tratamento_clientes_toku as tratamento
 
 dotenv.load_dotenv()
 
@@ -25,8 +30,10 @@ SQL_PASSWORD = os.getenv("SQL_PASSWORD", "")
 SQL_DRIVER   = os.getenv("SQL_DRIVER", "{ODBC Driver 18 for SQL Server}")
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-SQL_FILE   = os.path.join(BASE_DIR, "sql", os.getenv("SQL_FILE_NAME", "exportar_clientes_toku.sql"))
+SQL_DIR    = os.path.join(BASE_DIR, "sql")
 OUTPUT_DIR = os.path.join(BASE_DIR, "exports")
+
+TAMANHO_LOTE = 1000
 
 COLUNAS_TEXTO = {"CPF OU CNPJ (SOMENTE NÚMEROS)", "CEP"}
 
@@ -75,21 +82,84 @@ def connect():
     return pyodbc.connect(conn_str, timeout=30)
 
 
-def carregar_query() -> str:
-    with open(SQL_FILE, "r", encoding="utf-8") as f:
+def carregar_query(nome_arquivo: str) -> str:
+    with open(os.path.join(SQL_DIR, nome_arquivo), "r", encoding="utf-8") as f:
         return f.read()
 
 
+def consultar_em_lotes(conn, nome_arquivo: str, valores, tamanho_lote: int = TAMANHO_LOTE) -> pd.DataFrame:
+    """Roda um extract sql/*.sql que tem um placeholder {IN_LIST}, quebrando
+    `valores` em lotes (limite de parâmetros do SQL Server) e concatenando
+    o resultado. Substitui os JOINs de narrowing (docs_alvo/emails_alvo/...)
+    que existiam na query monolítica antiga."""
+    if not valores:
+        return pd.DataFrame()
+    template = carregar_query(nome_arquivo)
+    partes = []
+    for inicio in range(0, len(valores), tamanho_lote):
+        lote = valores[inicio:inicio + tamanho_lote]
+        placeholders = ",".join("?" for _ in lote)
+        query = template.replace("{IN_LIST}", placeholders)
+        partes.append(pd.read_sql(query, conn, params=lote))
+    return pd.concat(partes, ignore_index=True)
+
+
+def montar_dataframe(conn, teste: bool) -> pd.DataFrame:
+    top_n = "TOP 1000" if teste else ""
+    query_deals = carregar_query("extract_rd_deals.sql").replace("/*TOP_N*/", top_n)
+
+    print("Extraindo Deals (RD Station)...")
+    df_deals = pd.read_sql(query_deals, conn)
+
+    print("Extraindo campos customizados dos Deals (RD Station)...")
+    df_custom_fields = consultar_em_lotes(
+        conn, "extract_rd_deal_custom_fields.sql", df_deals["DealId"].tolist(),
+    )
+    base = tratamento.montar_base(df_deals, df_custom_fields)
+
+    print("Extraindo Contacts (RD Station)...")
+    df_contacts = pd.read_sql(carregar_query("extract_rd_contacts.sql"), conn)
+    contato_uni = tratamento.montar_contato_uni(df_contacts)
+    contact_ids = tratamento.contact_ids_para_buscar(contato_uni)
+
+    print("Extraindo telefones de Contacts (RD Station)...")
+    df_contact_phones = consultar_em_lotes(conn, "extract_rd_contact_phones.sql", contact_ids)
+    fone_uni = tratamento.montar_fone_uni(df_contact_phones)
+
+    print("Extraindo e-mails secundários de Contacts (RD Station)...")
+    df_contact_emails = consultar_em_lotes(conn, "extract_rd_contact_emails.sql", contact_ids)
+    email_secundario = tratamento.montar_email_secundario(df_contact_emails)
+
+    print("Extraindo cliente_fornecedor (Omie)...")
+    df_omie = pd.read_sql(carregar_query("extract_omie_clientes.sql"), conn)
+    omie_uni = tratamento.montar_omie_uni(df_omie)
+    omie_email_uni = tratamento.montar_omie_email_uni(df_omie)
+
+    print("Extraindo CepEndereco (energyClub)...")
+    df_cep = pd.read_sql(carregar_query("extract_energyclub_cep.sql"), conn)
+    cep_tab = tratamento.montar_cep_tab(df_cep)
+
+    print("Tratando e montando planilha final...")
+    return tratamento.montar_planilha_final(
+        base, contato_uni, fone_uni, email_secundario, omie_uni, cep_tab, omie_email_uni,
+    )
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Exporta clientes RD Station + Omie para o padrão Toku.")
+    parser.add_argument(
+        "--teste", action="store_true",
+        help="Limita o extract de Deals a TOP 1000, para validar o resultado antes da exportação completa.",
+    )
+    args = parser.parse_args()
+
     validar_variaveis_ambiente()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    query = carregar_query()
 
     print("Conectando ao SQL Server...")
     conn = connect()
     try:
-        print("Executando query (pode levar alguns segundos)...")
-        df = pd.read_sql(query, conn)
+        df = montar_dataframe(conn, teste=args.teste)
     finally:
         conn.close()
 
