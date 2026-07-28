@@ -23,7 +23,7 @@ SQL_PASSWORD = os.getenv("SQL_PASSWORD", "")
 SQL_DRIVER   = os.getenv("SQL_DRIVER", "{ODBC Driver 18 for SQL Server}")
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
-SQL_FILE   = os.path.join(BASE_DIR, "sql", "exportar_clientes_toku.sql")
+SQL_FILE   = os.path.join(BASE_DIR, "sql", os.getenv("SQL_FILE_NAME", "exportar_clientes_toku.sql"))
 OUTPUT_DIR = os.path.join(BASE_DIR, "exports")
 
 COLUNAS_TEXTO = {"CPF OU CNPJ (SOMENTE NÚMEROS)", "CEP"}
