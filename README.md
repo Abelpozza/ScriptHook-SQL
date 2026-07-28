@@ -41,7 +41,7 @@ O arquivo é gerado em `exports/clientes_toku_<timestamp>.xlsx`.
 
 ## Configuração
 
-Crie um arquivo `.env` na raiz do projeto (não é versionado — veja `.gitignore`) com:
+Crie um arquivo `.env` na raiz do projeto com:
 
 ```
 SQL_SERVER=
