@@ -3,37 +3,25 @@
     cadastro do Omie (WebHook-omie-prd.dbo.cliente_fornecedor) para ver se
     o telefone existe lá.
 
-    Somente leitura: a única tabela "escrita" é a #ListaPendencias, uma
-    tabela temporária de sessão (tempdb) usada só para colar a lista de
-    entrada — nenhuma tabela do RD ou do Omie é alterada.
+    Somente leitura: é um único SELECT. A lista de entrada é montada em
+    memória com VALUES (nenhuma tabela é criada/alterada, nem no RD nem
+    no Omie).
 
     Como usar:
-    1. Preencha o INSERT INTO #ListaPendencias abaixo com os CPF/CNPJ
-       (com ou sem pontuação) dos clientes pendentes. O nome é opcional,
-       só ajuda a ler o resultado.
-    2. Rode o script inteiro de uma vez (a tabela temporária só existe
-       durante a sessão/execução).
+    Preencha a lista de VALUES abaixo com os CPF/CNPJ (com ou sem
+    pontuação) dos clientes pendentes. O nome é opcional, só ajuda a
+    ler o resultado.
 */
 
-IF OBJECT_ID('tempdb..#ListaPendencias') IS NOT NULL DROP TABLE #ListaPendencias;
-
-CREATE TABLE #ListaPendencias (
-    NomeCliente     NVARCHAR(200) NULL,
-    CpfCnpjOriginal VARCHAR(30)   NOT NULL
-);
-
--- >>> Cole aqui a lista de clientes com pendência de telefone <<<
-INSERT INTO #ListaPendencias (NomeCliente, CpfCnpjOriginal) VALUES
-    (N'Cliente Exemplo 1', '123.456.789-00'),
-    (N'Cliente Exemplo 2', '12.345.678/0001-90');
-    -- adicione uma linha por cliente
-
 ;WITH lista AS (
-    SELECT
-        NomeCliente,
-        CpfCnpjOriginal,
-        CAST(REPLACE(REPLACE(REPLACE(CpfCnpjOriginal, '.', ''), '-', ''), '/', '') AS VARCHAR(20)) AS CpfCnpjLimpo
-    FROM #ListaPendencias
+    SELECT NomeCliente, CpfCnpjOriginal,
+           CAST(REPLACE(REPLACE(REPLACE(CpfCnpjOriginal, '.', ''), '-', ''), '/', '') AS VARCHAR(20)) AS CpfCnpjLimpo
+    FROM (VALUES
+        -- >>> Cole aqui a lista de clientes com pendência de telefone <<<
+        (N'Cliente Exemplo 1', '123.456.789-00'),
+        (N'Cliente Exemplo 2', '12.345.678/0001-90')
+        -- adicione uma linha por cliente
+    ) AS v(NomeCliente, CpfCnpjOriginal)
 ),
 omie AS (
     SELECT
