@@ -47,6 +47,23 @@ COLUNA_LARGURAS = {
 }
 
 
+def validar_variaveis_ambiente():
+    obrigatorias = {
+        "SQL_SERVER": SQL_SERVER,
+        "SQL_DATABASE": SQL_DATABASE,
+        "SQL_USER": SQL_USER,
+        "SQL_PASSWORD": SQL_PASSWORD,
+    }
+    faltando = [nome for nome, valor in obrigatorias.items() if not valor]
+    if faltando:
+        raise SystemExit(
+            "Variavel(is) de ambiente vazia(s) ou nao encontrada(s): "
+            f"{', '.join(faltando)}. Confira se o arquivo .env esta na raiz do "
+            "projeto, salvo (sem alteracoes pendentes) e sem BOM/UTF-8 com "
+            "assinatura no inicio do arquivo."
+        )
+
+
 def connect():
     # "tcp:" força o protocolo TCP/IP explicitamente — sem isso, alguns clientes
     # Windows tentam Named Pipes primeiro (configuração de protocolo do cliente)
@@ -64,6 +81,7 @@ def carregar_query() -> str:
 
 
 def main():
+    validar_variaveis_ambiente()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     query = carregar_query()
 
