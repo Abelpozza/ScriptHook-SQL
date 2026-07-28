@@ -19,19 +19,41 @@
 base AS (
     SELECT
         CAST(d.DealId AS NVARCHAR(100)) AS DealId,
-        CAST(d.Name AS NVARCHAR(500))   AS NomeDeal,
+        CAST(nome_tratado.nome AS NVARCHAR(500)) AS NomeDeal,
         -- Mesmo ambiente_id usado no cruzamento RD -> Omie em outras rotinas:
         -- pipeline "001. CGH APARECIDA" usa o ambiente 5, todo o resto usa o 2.
         CASE WHEN d.DealPipelineName = N'001. CGH APARECIDA' THEN 5 ELSE 2 END AS AmbienteId,
         cfa.CpfCnpjRaw, cfa.EmailRaw, cfa.CepRaw, cfa.CidadeRaw, cfa.EstadoRaw
     FROM [WebHook-Rd-prd].dbo.Deals d
     JOIN cfa ON cfa.DealId = d.Id
+    CROSS APPLY (
+        -- Posicao (1-based) do ULTIMO " - " no nome do Deal, ou NULL se nao existir.
+        SELECT pos = CASE WHEN CHARINDEX(' - ', REVERSE(d.Name)) > 0
+                          THEN LEN(d.Name) - CHARINDEX(' - ', REVERSE(d.Name)) - 1
+                          ELSE NULL END
+    ) p
+    CROSS APPLY (
+        SELECT sufixo = CASE WHEN p.pos IS NOT NULL THEN SUBSTRING(d.Name, p.pos + 3, 500) END
+    ) s
+    CROSS APPLY (
+        -- Corta o que vem depois do ultimo " - " quando aquilo e so codigo de UC
+        -- (numeros, "/", "-" e a sigla "UC"), ex.: "- UC 9/118-0", "- 23583569", "- 20/847426173".
+        SELECT nome = CASE
+                WHEN p.pos IS NOT NULL
+                 AND REPLACE(UPPER(s.sufixo), 'UC', '') NOT LIKE '%[A-ZÀ-Ÿ]%'
+                THEN LTRIM(RTRIM(LEFT(d.Name, p.pos - 1)))
+                ELSE LTRIM(RTRIM(d.Name))
+            END
+    ) nome_tratado
     WHERE d.DeletedAt IS NULL
       AND ISNULL(d.DealStageName, '') NOT IN ('EXCLUIDOS', 'UNIDADES CLARO', 'UNIDADES DA OI')
       AND d.DealPipelineName NOT IN (
           N'Comercial GD', N'CONTROLE DE USINAS', N'CS', N'Escritório de Negócios',
           N'EXCLUIDOS', N'EXCLUIDOS 2', N'EXCLUIDOS 3', N'Prospecção de Usinas',
           N'Representantes', N'TROCA DE TITULARIDADE')
+      -- Descarta nomes que, depois do tratamento acima, ficaram sem nenhuma letra
+      -- (ou seja, o "nome" era so um codigo/numero de UC, sem nome de cliente real).
+      AND nome_tratado.nome LIKE '%[A-Za-zÀ-ÿ]%'
 ),
 
 docs_alvo AS (
