@@ -100,6 +100,12 @@ def main():
         print(f"  - prontos para Toku: {prontos}")
         print(f"  - com alguma pendencia: {len(df) - prontos}")
 
+    print("Nulos por coluna:")
+    for col in df.columns:
+        nulos = int(df[col].isna().sum())
+        if nulos:
+            print(f"  - {col}: {nulos}")
+
     for col in COLUNAS_TEXTO:
         if col in df.columns:
             df[col] = df[col].astype("string")
