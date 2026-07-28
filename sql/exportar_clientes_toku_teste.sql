@@ -340,18 +340,14 @@ dedup AS (
     FROM final_prep fp
 )
 SELECT TOP 5
-    DealId,
     NOME,
-    CPF_CNPJ                    AS [CPF OU CNPJ (SOMENTE NÚMEROS)],
+    CPF_CNPJ           AS [CPF OU CNPJ (SOMENTE NÚMEROS)],
     EMAIL,
-    EMAILS_SECUNDARIOS          AS [E-MAILS SECUNDÁRIOS],
-    CELULAR,
+    EMAILS_SECUNDARIOS AS [E-MAILS SECUNDÁRIOS (SEPARADOS POR PONTO E VÍRGULA ";")],
+    CELULAR            AS [CELULAR (PADRÃO E.164) Ex. +5548999567788],
     CEP,
     CIDADE,
-    CODIGO_ESTADO                AS [CÓDIGO DO ESTADO],
-    completo,
-    CPF_NO_OMIE,
-    EMAIL_SUSPEITO
+    CODIGO_ESTADO      AS [CÓDIGO DO ESTADO]
 FROM dedup
 WHERE rn = 1
 ORDER BY completo DESC, NOME
