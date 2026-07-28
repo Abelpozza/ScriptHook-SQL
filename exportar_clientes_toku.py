@@ -12,6 +12,7 @@ from datetime import datetime
 import dotenv
 import pandas as pd
 import pyodbc
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 dotenv.load_dotenv()
@@ -27,6 +28,22 @@ SQL_FILE   = os.path.join(BASE_DIR, "sql", os.getenv("SQL_FILE_NAME", "exportar_
 OUTPUT_DIR = os.path.join(BASE_DIR, "exports")
 
 COLUNAS_TEXTO = {"CPF OU CNPJ (SOMENTE NÚMEROS)", "CEP"}
+
+# Layout padrão do modelo de importação da Toku (aba "Planilha1").
+SHEET_NAME = "Planilha1"
+HEADER_FONT = Font(name="Aptos Narrow", size=11)
+HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
+HEADER_ROW_HEIGHT = 38.5
+COLUNA_LARGURAS = {
+    "A": 13.1796875,
+    "B": 19.81640625,
+    "C": 8.90625,
+    "D": 32.08984375,
+    "E": 22.90625,
+    "F": 11.453125,
+    "G": 12.0,
+    "H": 18.7265625,
+}
 
 
 def connect():
@@ -55,8 +72,9 @@ def main():
         conn.close()
 
     print(f"{len(df)} clientes retornados.")
-    if "completo" in df.columns:
-        prontos = int(df["completo"].sum())
+    campos_completo = ["CELULAR (PADRÃO E.164) Ex. +5548999567788", "CEP", "CIDADE", "CÓDIGO DO ESTADO"]
+    if all(col in df.columns for col in campos_completo):
+        prontos = int(df[campos_completo].notna().all(axis=1).sum())
         print(f"  - prontos para Toku: {prontos}")
         print(f"  - com alguma pendencia: {len(df) - prontos}")
 
@@ -68,11 +86,16 @@ def main():
     output_path = os.path.join(OUTPUT_DIR, f"clientes_toku_{timestamp}.xlsx")
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="clientes", index=False)
-        ws = writer.sheets["clientes"]
+        df.to_excel(writer, sheet_name=SHEET_NAME, index=False)
+        ws = writer.sheets[SHEET_NAME]
+
+        ws.row_dimensions[1].height = HEADER_ROW_HEIGHT
         for idx, col_name in enumerate(df.columns, start=1):
+            letra = get_column_letter(idx)
+            ws.column_dimensions[letra].width = COLUNA_LARGURAS.get(letra, 15)
+            ws[f"{letra}1"].font = HEADER_FONT
+            ws[f"{letra}1"].alignment = HEADER_ALIGNMENT
             if col_name in COLUNAS_TEXTO:
-                letra = get_column_letter(idx)
                 for cell in ws[letra][1:]:
                     cell.number_format = "@"
 
